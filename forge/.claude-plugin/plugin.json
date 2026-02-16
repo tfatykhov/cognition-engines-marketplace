@@ -1,0 +1,18 @@
+{
+  "name": "forge",
+  "version": "0.4.0",
+  "description": "FORGE — The Decision Loop. Fetch context, Orient against guardrails, Resolve with micro-thought deliberation, Go execute, Extract outcomes and patterns. A cognitive decision protocol for AI agents powered by the Cognition Engine.",
+  "author": {
+  "name": "Timur Fatykhov"
+   },
+  "license": "Apache 2.0",
+  "keywords": [
+    "forge",
+    "cstp",
+    "cognition-engines",
+    "decision-protocol",
+    "calibration",
+    "agent-framework",
+    "deliberation"
+  ]
+}

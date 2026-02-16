@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "decisions": {
+      "type": "http",
+      "url": "${CSTP_MCP_URL:-http://192.168.1.141:9991/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${CSTP_TOKEN}"
+      }
+    }
+  }
+}

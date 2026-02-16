@@ -1,0 +1,14 @@
+{
+  "name": "cognition-engines",
+  "owner": {
+    "name": "Timur Fatykhov" 
+   },
+  "plugins": [
+    {
+      "name": "forge",
+      "version": "0.4.0",
+      "source":"./forge",
+      "description": "FORGE  The Decision Loop. Cognitive decision protocol for AI agents powered by the Cognition Engine."
+    }
+  ]
+}
