@@ -1,160 +1,146 @@
 ---
-description: Follow this protocol for ALL development tasks including fixing bugs, implementing features, refactoring code, changing configuration, or any code modifications. Call get_session_context at session start and track every non-trivial change as a decision using the decisions MCP server.
+description: Decision-logging protocol for non-trivial development work (bug fixes, features, refactors, config changes). Uses the decisions MCP server to check guardrails and record design decisions with their rationale and outcomes.
 ---
 
-# FORGE — The Decision Loop
+# FORGE  Decision Logging Protocol
 
-You forge decisions in the Cognition Engine — deliberately, under pressure, with intention. Every decision flows through this loop, creating a compounding record of organizational judgment.
+This project uses a `decisions` MCP server to keep a shared log of design decisions: what was chosen, why, and how it turned out. The log lets future work reuse what succeeded and avoid repeating what failed.
 
-**FORGE**: **F**etch → **O**rient → **R**esolve → **G**o → **E**xtract
+The loop: **F**etch  **O**rient  **R**esolve  **G**o  **E**xtract
 
-You have access to a `decisions` MCP server. Follow this protocol for ALL non-trivial work.
+## Scope
 
-## Hard Rules (MANDATORY — never skip these)
+Use this protocol for non-trivial development decisions. Skip it for formatting, import ordering, typo fixes, mechanical steps (creating a file from an agreed spec, installing a dependency, running tests), and questions that don't change code.
 
-1. **FETCH at session start.** Call `get_session_context`. Always. No exceptions.
-2. **ORIENT before every MEDIUM+ decision.** Call `pre_action`. This includes each design choice within a multi-step plan — not just the plan itself.
-3. **RESOLVE with micro-thoughts.** Stream `record_thought` calls — one atomic signal per call, minimum 10 per decision. Then `update_decision` to finalize.
-4. **Do NOT use `log_decision` to finalize.** It creates a duplicate. Always `update_decision`.
-5. **Never proceed past `allowed: false`.** Stop. Show the user. Wait.
-6. **Never GO on HIGH/CRITICAL without user confirmation.**
-7. **EXTRACT after every task.** Call `review_outcome`. Every decision needs an outcome. No exceptions.
-8. **State the choice, not the question.** "Use cursor pagination" not "How should we paginate?"
-9. **Minimum 2 reason types for MEDIUM+ stakes.** Mix of: analysis, pattern, empirical, authority, analogy, constraint, elimination, intuition.
+**Test:** if you could reasonably have done this step differently and the difference would matter, it's a decision worth logging. In a multi-step plan, each such design choice is its own decision.
+
+## Rules
+
+1. Call `get_session_context` once at the start of a session.
+2. Call `pre_action` before each MEDIUM or higher decision.
+3. Call the tools in sequence. Wait for `pre_action` to return a `decisionId` before calling `record_thought`, and make `record_thought` calls one at a time rather than in parallel.
+4. Finalize with `update_decision`. Don't use `log_decision` for this, because it creates a duplicate record.
+5. If `pre_action` returns `allowed: false`, stop, explain the guardrail to the user, and wait for their direction.
+6. For HIGH and CRITICAL decisions, get the user's confirmation before executing.
+7. When the work for a decision is done, call `review_outcome`.
+8. Phrase decisions as the choice made ("Use cursor pagination"), not as a question.
+9. For MEDIUM and higher, give at least two kinds of reason: analysis, pattern, empirical, authority, analogy, constraint, elimination, or intuition.
 
 ## The Loop
 
-### FETCH — Load context and past decisions
+### FETCH  Load context
 
 ```
-get_session_context(task_description: "<infer from user's message>")
-→ returns calibration, guardrails, patterns, relevant past decisions
+get_session_context(task_description: "<summary of the user's request>")
 ```
 
-Do this once at session start. Use it to inform every decision that follows.
+Returns calibration data, guardrails, known patterns and relevant past decisions. Use them to inform the decisions that follow.
 
-### ORIENT — Check guardrails and constraints
-
-```
-pre_action(action, category, stakes, confidence, reasons, agent_id, auto_record:true)
-→ returns decisionId, similar past decisions, guardrail results, calibration
-```
-
-This is where you check what's been tried before, what succeeded, what failed, and what guardrails apply. The decision is recorded and you get a `decisionId` for scoping.
-
-### RESOLVE — Decide and record with reasoning
-
-Stream micro-thoughts — one atomic signal per call, minimum 10:
+### ORIENT  Check guardrails and history
 
 ```
-record_thought(text="10k concurrent users requirement", decision_id=ID, agent_id="a")
-record_thought(text="team only knows Python — eliminates Go, Rust", decision_id=ID, agent_id="a")
-record_thought(text="FastAPI is async-native", decision_id=ID, agent_id="a")
-record_thought(text="Django async views exist but bolted on", decision_id=ID, agent_id="a")
-record_thought(text="uvicorn benchmarks: 12k req/s — clears the bar", decision_id=ID, agent_id="a")
-record_thought(text="but uvicorn process management less mature", decision_id=ID, agent_id="a")
-record_thought(text="wait — gunicorn can manage uvicorn workers", decision_id=ID, agent_id="a")
-record_thought(text="that resolves the process management concern", decision_id=ID, agent_id="a")
-record_thought(text="FastAPI aligns with existing team microservices", decision_id=ID, agent_id="a")
-record_thought(text="FastAPI + gunicorn-managed uvicorn workers", decision_id=ID, agent_id="a")
+pre_action(action, category, stakes, confidence, reasons, agent_id, auto_record: true)
 ```
 
-Then finalize:
+Returns a `decisionId`, similar past decisions, guardrail results and calibration.
+
+### RESOLVE  Record the rationale
+
+Write short rationale notes with `record_thought`, one consideration per call. These are concise summaries for the decision log (the facts, constraints, trade-offs and eliminated options that drove the choice), not a transcript of internal reasoning.
+
+Good notes are short and specific:
+
+- `"Requirement: 2k writes/sec"`
+- `"Redis TTL covers expiry natively"`
+- `"Redis single-threaded limit (~50k writes/sec) is well above need"`
+- `"Memcached ruled out: no persistence"`
+- `"Risk: cache warm-up after restart; mitigated by lazy loading"`
+
+Example:
+
 ```
-update_decision(id=ID, decision="FastAPI + gunicorn-managed uvicorn workers")
+record_thought(text="Requirement: 10k concurrent users", decision_id=ID, agent_id="a")
+record_thought(text="Team works in Python, so Go and Rust are out", decision_id=ID, agent_id="a")
+record_thought(text="FastAPI is async-native; Django async support is newer", decision_id=ID, agent_id="a")
+record_thought(text="Process management handled by gunicorn with uvicorn workers", decision_id=ID, agent_id="a")
+record_thought(text="Matches the team's existing microservices", decision_id=ID, agent_id="a")
+update_decision(id=ID, decision="FastAPI with gunicorn-managed uvicorn workers")
 ```
 
-### GO — Execute the work
+### GO  Do the work
 
-Do the thing. Write the code. Ship the change.
+Write the code and make the change.
 
-### EXTRACT — Evaluate outcomes and distill patterns
+### EXTRACT  Record the outcome
 
 ```
 review_outcome(id=ID, outcome, actual_result, lessons)
 ```
 
 If a generalizable principle emerged:
+
 ```
 update_decision(id=ID, pattern: "<the principle>")
 ```
 
-## Micro-Thought Rules
+## Stakes Triage
 
-Each `record_thought` call is ONE atomic signal. Think like neurons firing, not writing a report:
+Classify before acting.
 
-- **One observation per call.** Not paragraphs. Not bullet lists. One signal.
-- **Types of signals:** fact, constraint, connection, contradiction, elimination, resolution, risk, mitigation, preference, conclusion
-- **Be raw.** "wait — that won't work because X" is better than "Upon further analysis, approach X presents challenges due to..."
-- **Capture the turns.** When reasoning changes direction, that's the most valuable signal. "actually, scratch that — Y handles this better" is gold.
-- **Minimum 10 per decision.** All stakes levels. No shortcuts.
+| Level | Signal | Flow | Rationale notes |
+|-------|--------|------|-----------------|
+| **LOW** | Single file, easily reverted | Log only if it's a real design choice: ORIENT  RESOLVE  GO  EXTRACT | 23 |
+| **MEDIUM** | Multiple files, design choices | ORIENT  RESOLVE  GO  EXTRACT | 36 |
+| **HIGH** | Hard to reverse, wide blast radius | Confirmation flow below | 510, including risks |
+| **CRITICAL** | Irreversible or security-sensitive | Confirmation flow below | 510, including risks and alternatives |
 
-### What makes a good micro-thought:
-- ✅ `"Redis supports TTL natively — that's the expiry mechanism"` (one fact)
-- ✅ `"but Redis is single-threaded — bottleneck at 50k writes/sec"` (one constraint)
-- ✅ `"wait — we only need 2k writes/sec, single-thread is fine"` (one resolution)
-- ❌ `"Considering Redis vs Memcached. Redis has TTL support and persistence but is single-threaded. Memcached is multi-threaded but lacks TTL. Given our 2k writes/sec requirement..."` (this is a report, not a thought stream)
+Signals:
 
-## Multi-Agent Isolation
+- Reverted with a single `git revert`  LOW. Needs a migration rollback  HIGH or above.
+- One file  LOW. One service  MEDIUM. Multiple services  HIGH. Affects production users  CRITICAL.
+- Touches PII, credentials or user data  at least HIGH.
+- A similar past decision succeeded  consider lowering the level. Novel territory  consider raising it.
 
-When multiple agents share one MCP connection, scoping prevents thought mixups:
+### Confirmation flow (HIGH and CRITICAL)
 
-| Parameters | Tracker Key | Use Case |
-|-----------|-------------|----------|
+1. Call `pre_action(..., auto_record: false)` to check guardrails and similar past decisions without creating a record.
+2. Present the proposed choice to the user in chat: the decision, key reasons, risks and (for CRITICAL) the alternatives considered.
+3. Wait for the user's confirmation.
+4. Once approved, call `pre_action(..., auto_record: true)` to create the record and get a `decisionId`.
+5. Record the rationale notes and call `update_decision`.
+6. Do the work, then call `review_outcome`.
+
+If the user declines, don't create a record unless they ask for the rejected option to be logged.
+
+## Agent Scoping
+
+When several agents share one MCP connection, pass both `agent_id` and `decision_id` on every `record_thought` call so notes stay attached to the right decision.
+
+| Parameters | Tracker key | Use |
+|-----------|-------------|-----|
 | Neither | `mcp-session` | Single agent (fallback) |
 | `agent_id` only | `agent:name` | Agent-scoped, no specific decision |
 | `decision_id` only | `decision:id` | Decision-scoped, single agent |
-| Both | `agent:name:decision:id` | Full isolation (recommended) |
+| Both | `agent:name:decision:id` | Recommended |
 
-Always pass both `agent_id` and `decision_id` for clean isolation.
+## Pattern Extraction
 
-## Stakes Triage
+After `review_outcome`:
 
-Classify BEFORE acting:
+- Success, no existing pattern, and two or more similar past successes  add a pattern with `update_decision`.
+- Failure where a pattern exists  refine the pattern with the new constraint.
+- Success that followed an existing pattern  nothing further needed.
 
-| Level | Signal | Loop |
-|-------|--------|------|
-| **LOW** | Single file, easily reverted | ORIENT → RESOLVE (10+ thoughts) → GO → EXTRACT |
-| **MEDIUM** | Multiple files, design choices | ORIENT → RESOLVE (10+ thoughts) → GO → EXTRACT |
-| **HIGH** | Hard to reverse, wide blast radius | ORIENT(auto_record:false) → RESOLVE (10+ thoughts + risks) → show user → wait → GO → EXTRACT |
-| **CRITICAL** | Irreversible or security-sensitive | ORIENT(auto_record:false) → RESOLVE (10+ thoughts + risks + alternatives) → show user → wait → GO → EXTRACT |
+## Calibration
 
-Stakes signals:
-- Single `git revert`? → LOW. Migration rollback? → HIGH+
-- One file → LOW. One service → MEDIUM. Multiple services → HIGH. Production users → CRITICAL
-- Touches PII, credentials, user data? → Minimum HIGH
-- Similar past decision succeeded? Lower stakes. Novel territory? Raise stakes.
+Session context includes calibration data. Use it when setting confidence:
 
-## Multi-Step Execution
+- `tendency: underconfident`  estimates of 0.70.9 usually succeed.
+- `tendency: overconfident`  lower estimates by 510%.
+- Check `by_category` for category-specific accuracy.
 
-When executing a plan with multiple steps, **each step that involves a choice is its own decision**:
+## Working With the User
 
-- **Mechanical step** (create file from spec, install dependency, run test) → no recording needed
-- **Design choice** (which pattern, which library, how to structure) → full ORIENT → RESOLVE → GO flow
-
-**Test**: Could you have done this step differently and it would matter? If yes → it's a decision.
-
-## Pattern Extraction (EXTRACT phase)
-
-After `review_outcome`, check:
-- **Success + no existing pattern + 2+ similar past successes** → `update_decision(id, pattern: "...")`
-- **Failure + existing pattern** → Refine pattern with learned constraint
-- **Success + follows existing pattern** → No action needed
-
-## Calibration Awareness
-
-Your session context includes calibration data:
-- `tendency: underconfident` → your 0.7-0.9 estimates probably succeed. Trust them.
-- `tendency: overconfident` → lower estimates by 5-10%.
-- Check `by_category` accuracy for category-specific calibration.
-
-## What NOT to Do
-
-- Don't announce protocol steps robotically ("Now I will call pre_action...")
-- Don't log trivial decisions (formatting, import ordering)
-- Don't skip EXTRACT because the task "went fine" — that's the most valuable data
-- **Don't write paragraphs in record_thought — one atomic signal per call**
-- **Don't skip RESOLVE after ORIENT — empty deliberation is a protocol violation**
-- **Don't use log_decision to finalize — use update_decision instead**
-- **Don't treat a multi-step plan as a single decision — each design choice is separate**
-- **Don't omit agent_id and decision_id — unscoped thoughts get lost in multi-agent work**
+- Keep logging lightweight in chat. There's no need to narrate each tool call, but if the user asks what was logged or why, tell them.
+- When a past decision or pattern changes your recommendation, mention it as a recommendation rather than raw data.
+- Report confidence honestly in outcomes, including partial successes and failures.
