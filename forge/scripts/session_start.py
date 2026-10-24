@@ -18,9 +18,9 @@ FORGE_CONTEXT = """## FORGE decision logging is active
 This project uses the `decisions` MCP server to keep a shared log of design decisions: what was chosen, why, and how it turned out. The full protocol is in the `forge-protocol` skill; load it before your first logged decision.
 
 Summary:
-- **Fetch**: call `get_session_context(task_description=...)` once, early in the session.
+- **Fetch**: call `get_session_context(task_description=...)` once, before the first decision you log.
 - **Orient**: before each MEDIUM or higher decision, call `pre_action(action, category, stakes, confidence, reasons, agent_id, auto_record=true)`. It returns a `decisionId`. If it returns `allowed: false`, stop and explain the guardrail to the user.
-- **Resolve**: record the rationale with `record_thought(text, decision_id, agent_id)`, one short note per call (facts, constraints, trade-offs, ruled-out options), sequentially after `pre_action` returns. Scale by stakes: LOW 2-3, MEDIUM 3-6, HIGH/CRITICAL 5-10. Then finalize with `update_decision(id, decision)`; `log_decision` would create a duplicate record.
+- **Resolve**: record the rationale with `record_thought(text, decision_id, agent_id="main")`, one short note per call (facts, constraints, trade-offs, ruled-out options), sequentially after `pre_action` returns. Scale by stakes: LOW 2-3, MEDIUM 3-6, HIGH/CRITICAL 5-10. Then finalize with `update_decision(id, decision)`; `log_decision` would create a duplicate record.
 - **Go**: do the work. For HIGH and CRITICAL decisions, get the user's confirmation first.
 - **Extract**: when the work for a decision is done, call `review_outcome(id, outcome, actual_result, lessons)`.
 

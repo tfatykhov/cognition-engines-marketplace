@@ -12,4 +12,4 @@ For each pending decision:
 3. Ask: what actually happened?
 4. Ask: any lessons learned?
 5. Call `review_outcome` with the answers
-6. If a pattern emerged, call `update_decision(id, pattern: "...")`
+6. If a pattern emerged, call `update_decision(id=ID, pattern="...")`
