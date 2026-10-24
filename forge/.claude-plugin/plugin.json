@@ -1,6 +1,6 @@
 {
   "name": "forge",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "FORGE — The Decision Loop. Fetch context, Orient against guardrails, Resolve by recording the rationale, Go execute, Extract outcomes and patterns. A decision-logging protocol for AI agents powered by the Cognition Engine.",
   "author": {
     "name": "Timur Fatykhov"
