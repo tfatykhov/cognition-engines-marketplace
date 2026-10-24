@@ -107,7 +107,7 @@ def scan_for_unreflected(transcript_path: str) -> list[str]:
 
 
 def main():
-    raw = sys.stdin.read()
+    raw = sys.stdin.buffer.read().decode("utf-8", errors="replace")
     try:
         hook_input = json.loads(raw) if raw.strip() else {}
     except json.JSONDecodeError:

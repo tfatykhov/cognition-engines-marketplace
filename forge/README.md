@@ -37,7 +37,8 @@ Or from the marketplace:
 ## Requirements
 
 - Decisions MCP server running
-- Python 3.10+ for hook scripts
+- Python 3.10+ for hook scripts, available as `python3`, `python` or `py -3` (the hooks try each in turn and skip the Windows Store stub)
+- On Windows: Git for Windows, so hooks run in Git Bash
 
 ## Configuration
 

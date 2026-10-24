@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/session_start.py\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py.sh\" session_start.py",
             "timeout": 15
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_use.py\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py.sh\" pre_tool_use.py",
             "timeout": 5
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/stop_reflect.py\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/py.sh\" stop_reflect.py",
             "timeout": 10
           }
         ]
