@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "forge",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "source": "./forge",
       "description": "FORGE — The Decision Loop. Cognitive decision protocol for AI agents powered by the Cognition Engine."
     }
