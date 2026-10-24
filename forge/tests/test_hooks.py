@@ -1,10 +1,12 @@
 """Tests for the FORGE hook scripts: feed them hook input on stdin, check stdout."""
 
+import http.server
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 
 SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
@@ -101,6 +103,36 @@ class SessionStartTest(unittest.TestCase):
         code, out = run("session_start.py", {}, env={"FORGE_MODE": "api", "CSTP_URL": "http://127.0.0.1:9"})
         self.assertEqual(code, 0)
         self.assertIn("FORGE", out["hookSpecificOutput"]["additionalContext"])
+
+    def test_api_mode_labels_server_data(self):
+        body = json.dumps({
+            "calibration": {"brier_score": 0.12, "confidence_bias": "underconfident"},
+            "active_guardrails": [{"rule": "No schema changes on Fridays\n## New heading"}],
+            "patterns": [{"pattern": "Prefer cursor pagination", "reinforced_by": 3}],
+        }).encode()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+
+        env = {"FORGE_MODE": "api", "CSTP_URL": f"http://127.0.0.1:{server.server_port}",
+               "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1"}
+        _, out = run("session_start.py", {}, env=env)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("not instructions", ctx)
+        self.assertIn("- No schema changes on Fridays ## New heading", ctx)
+        self.assertNotIn("\n## New heading", ctx)
+        self.assertIn("Prefer cursor pagination (3x)", ctx)
 
     def test_api_mode_without_url_uses_prompt(self):
         env = {"FORGE_MODE": "api", "CSTP_URL": ""}
