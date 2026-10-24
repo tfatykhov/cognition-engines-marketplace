@@ -1,3 +1,7 @@
+---
+description: Show FORGE status: calibration, pending reviews, guardrails and patterns
+---
+
 # /forge:status
 
 Show FORGE decision protocol status dashboard.
