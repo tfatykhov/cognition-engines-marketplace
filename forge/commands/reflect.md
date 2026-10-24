@@ -1,3 +1,7 @@
+---
+description: Record outcomes for this session's decisions that have no review yet
+---
+
 # /forge:reflect
 
 Walk through unreflected decisions from this session.

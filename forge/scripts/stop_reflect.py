@@ -1,89 +1,123 @@
 #!/usr/bin/env python3
 """
-ACCER Stop Hook
+FORGE Stop Hook
 Checks for unreflected decisions and blocks session stop if found.
 
-Scans the conversation transcript for logged decisions that lack
-a corresponding review_outcome call. If any are found, returns
-exit code 2 to block the stop and tells Claude to reflect.
+Reads the session transcript (transcript_path from the hook input) and
+collects decision IDs returned by pre_action / log_decision that have no
+matching review_outcome call. If any are found, it blocks the stop once
+and asks Claude to record the outcomes.
 """
 
 import json
-import os
 import re
 import sys
 
 
-def find_transcript() -> str | None:
-    """Find the current session's JSONL transcript."""
-    # Claude Code stores transcripts in ~/.claude/projects/<hash>/
-    claude_dir = os.path.expanduser("~/.claude")
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
+RECORDING_TOOLS = ("pre_action", "log_decision")
+ID_KEYS = ("decisionId", "decision_id", "id")
 
-    if not os.path.isdir(claude_dir):
-        return None
 
-    # Look for the most recent JSONL file in project sessions
-    candidates = []
-    for root, dirs, files in os.walk(claude_dir):
-        for f in files:
-            if f.endswith(".jsonl"):
-                full = os.path.join(root, f)
-                candidates.append((os.path.getmtime(full), full))
+def tool_name(name: str) -> str:
+    """Strip the MCP prefix: mcp__plugin_forge_decisions__pre_action -> pre_action."""
+    return name.rsplit("__", 1)[-1]
 
-    if not candidates:
-        return None
 
-    # Return most recently modified
-    candidates.sort(reverse=True)
-    return candidates[0][1]
+def result_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            block.get("text", "") for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return ""
+
+
+def find_id(obj) -> str | None:
+    """Find a decision ID in a parsed tool result."""
+    if isinstance(obj, dict):
+        for key in ID_KEYS:
+            if isinstance(obj.get(key), str) and obj[key]:
+                return obj[key]
+        for value in obj.values():
+            found = find_id(value)
+            if found:
+                return found
+    return None
+
+
+def decision_id_from_result(text: str) -> str | None:
+    try:
+        return find_id(json.loads(text))
+    except json.JSONDecodeError:
+        match = re.search(r'"(?:decisionId|decision_id)"\s*:\s*"([^"]+)"', text)
+        return match.group(1) if match else None
+
+
+def content_blocks(entry: dict) -> list:
+    message = entry.get("message")
+    if not isinstance(message, dict):
+        return []
+    content = message.get("content")
+    return content if isinstance(content, list) else []
 
 
 def scan_for_unreflected(transcript_path: str) -> list[str]:
-    """Scan JSONL transcript for decision IDs without review_outcome."""
-    logged_ids = set()
+    """Return decision IDs created in this session that lack review_outcome."""
+    pending_calls = {}  # tool_use id -> tool name, for recording tools
+    logged_ids = []
     reviewed_ids = set()
 
     try:
         with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
-                line = line.strip()
-                if not line:
-                    continue
                 try:
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                if not isinstance(entry, dict):
+                    continue
 
-                text = json.dumps(entry).lower()
+                for block in content_blocks(entry):
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "tool_use":
+                        name = tool_name(block.get("name", ""))
+                        tool_input = block.get("input") or {}
+                        if name in RECORDING_TOOLS:
+                            # pre_action with auto_record false creates no record
+                            if name == "pre_action" and tool_input.get("auto_record") is False:
+                                continue
+                            pending_calls[block.get("id")] = name
+                        elif name == "review_outcome":
+                            rid = tool_input.get("id") or tool_input.get("decision_id")
+                            if rid:
+                                reviewed_ids.add(str(rid))
+                    elif block.get("type") == "tool_result":
+                        if block.get("tool_use_id") in pending_calls and not block.get("is_error"):
+                            did = decision_id_from_result(result_text(block.get("content")))
+                            if did and did not in logged_ids:
+                                logged_ids.append(did)
 
-                # Look for log_decision calls that returned an ID
-                # Pattern: decision IDs are 8-char hex
-                if "log_decision" in text or "pre_action" in text:
-                    # Extract decision IDs from responses
-                    ids = re.findall(r'"(?:decisionId|decision_id|id)":\s*"([a-f0-9]{8})"', json.dumps(entry))
-                    logged_ids.update(ids)
-
-                if "review_outcome" in text:
-                    ids = re.findall(r'"id":\s*"([a-f0-9]{8})"', json.dumps(entry))
-                    reviewed_ids.update(ids)
-
-    except (IOError, PermissionError):
+    except OSError:
         return []
 
-    return list(logged_ids - reviewed_ids)
+    return [did for did in logged_ids if did not in reviewed_ids]
 
 
 def main():
     raw = sys.stdin.read()
-
-    # Prevent infinite loops — if stop_hook already ran, pass through
-    if os.environ.get("ACCER_STOP_HOOK_ACTIVE"):
+    try:
+        hook_input = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError:
         sys.exit(0)
 
-    os.environ["ACCER_STOP_HOOK_ACTIVE"] = "1"
+    # Claude is already continuing because of this hook: let it stop
+    if hook_input.get("stop_hook_active"):
+        sys.exit(0)
 
-    transcript = find_transcript()
+    transcript = hook_input.get("transcript_path")
     if not transcript:
         sys.exit(0)
 
@@ -91,17 +125,14 @@ def main():
 
     if unreflected:
         ids_str = ", ".join(unreflected)
-        count = len(unreflected)
-        result = {
-            "additionalContext": (
-                f"ACCER: {count} decision(s) logged without reflection: [{ids_str}]. "
-                f"Call review_outcome for each before ending. "
-                f"The ACCER feedback loop requires every decision to have an outcome recorded."
-            )
-        }
-        print(json.dumps(result))
-        # Exit code 2 = block the stop, send message back to Claude
-        sys.exit(2)
+        print(json.dumps({
+            "decision": "block",
+            "reason": (
+                f"FORGE: {len(unreflected)} decision(s) recorded without an outcome: [{ids_str}]. "
+                f"If the work for them is done, call review_outcome for each so the decision log "
+                f"stays accurate. If a decision is still in progress, say so to the user and stop."
+            ),
+        }))
 
     sys.exit(0)
 
