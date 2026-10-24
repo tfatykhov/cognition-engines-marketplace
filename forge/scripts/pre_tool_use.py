@@ -77,6 +77,9 @@ def classify_path(file_path: str) -> tuple[str, str]:
     if not file_path:
         return ("low", "")
 
+    # Patterns use "/"; normalize Windows paths
+    file_path = file_path.replace("\\", "/")
+
     for level, patterns in LEVELS:
         for pattern in patterns:
             if re.search(pattern, file_path, re.IGNORECASE):
@@ -165,7 +168,7 @@ def respond(decision: str | None, reason: str = "", context: str = "") -> None:
 
 
 def main():
-    raw = sys.stdin.read()
+    raw = sys.stdin.buffer.read().decode("utf-8", errors="replace")
     if not raw.strip():
         sys.exit(0)
 

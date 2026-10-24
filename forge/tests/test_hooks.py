@@ -51,6 +51,19 @@ class PreToolUseTest(unittest.TestCase):
         _, out = pre_tool("Write", {"file_path": "/repo/.envrc"})
         self.assertIsNone(out)
 
+    def test_windows_paths(self):
+        _, out = pre_tool("Write", {"file_path": "C:\\repo\\db\\migrations\\0001.sql"})
+        self.assertEqual(self.decision(out), "ask")
+        _, out = pre_tool("Edit", {"file_path": "C:\\repo\\.git\\config"})
+        self.assertEqual(self.decision(out), "deny")
+
+    def test_non_ascii_input(self):
+        raw = json.dumps({"tool_name": "Write", "tool_input": {"file_path": "docs/caf\u00e9-\u2192.md"}},
+                         ensure_ascii=False).encode("utf-8")
+        proc = subprocess.run([sys.executable, os.path.join(SCRIPTS, "pre_tool_use.py")],
+                              input=raw, capture_output=True, env={**os.environ, "PYTHONIOENCODING": "cp1252"})
+        self.assertEqual((proc.returncode, proc.stdout), (0, b""))
+
     def test_medium_is_advisory(self):
         _, out = pre_tool("Edit", {"file_path": "package.json"})
         spec = out["hookSpecificOutput"]
@@ -88,6 +101,29 @@ class PreToolUseTest(unittest.TestCase):
     def test_garbage_input(self):
         self.assertEqual(run("pre_tool_use.py", "not json"), (0, None))
         self.assertEqual(run("pre_tool_use.py", ""), (0, None))
+
+
+class LauncherTest(unittest.TestCase):
+    def test_py_sh_runs_hook(self):
+        proc = subprocess.run(["bash", os.path.join(SCRIPTS, "py.sh"), "session_start.py"],
+                              input="{}", capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("SessionStart", proc.stdout)
+
+    def test_py_sh_skips_broken_python3(self):
+        # Simulate the Windows Store stub: a python3 on PATH that fails
+        with tempfile.TemporaryDirectory() as d:
+            stub = os.path.join(d, "python3")
+            with open(stub, "w") as f:
+                f.write("#!/bin/sh\necho 'Python was not found' >&2\nexit 9009\n")
+            os.chmod(stub, 0o755)
+            real = os.path.join(d, "python")
+            os.symlink(sys.executable, real)
+            proc = subprocess.run(["bash", os.path.join(SCRIPTS, "py.sh"), "session_start.py"],
+                                  input="{}", capture_output=True, text=True, timeout=30,
+                                  env={**os.environ, "PATH": d + os.pathsep + os.environ["PATH"]})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("SessionStart", proc.stdout)
 
 
 class SessionStartTest(unittest.TestCase):
